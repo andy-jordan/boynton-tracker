@@ -1,0 +1,83 @@
+name: Update tracker
+
+on:
+  schedule:
+    - cron: "0 11 * * *" # 6 a.m. Eastern (7 a.m. during daylight time), after late games finish
+  push:
+    branches: [main]
+    paths: ["model/**", "site/**", "scripts/**", ".github/workflows/update.yml"]
+  pull_request:
+    paths: ["model/**", "site/**", "scripts/**", ".github/workflows/update.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: update-tracker
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      HAS_RATINGS: ${{ secrets.RATINGS_CSV != '' }}
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && vars.CLOUDFLARE_ACCOUNT_ID != '' }}
+      IS_MAIN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install model dependencies
+        run: pip install -e "model[dev]"
+
+      - name: Write hand-entered ratings from secret
+        if: env.HAS_RATINGS == 'true'
+        env:
+          RATINGS_CSV: ${{ secrets.RATINGS_CSV }}
+        run: printf '%s\n' "$RATINGS_CSV" > model/data/ratings.csv
+
+      - name: Test model
+        working-directory: model
+        run: python -m pytest -q
+
+      - name: Run simulation
+        working-directory: model
+        run: python -m boynton --seed 2027 --json out/summary.json
+
+      - name: Record history and stamp summary
+        run: |
+          python scripts/append_history.py model/out/summary.json site/public/data/history.json
+          cp model/out/summary.json site/public/data/summary.json
+
+      - name: Commit history
+        if: env.IS_MAIN == 'true'
+        run: |
+          git config user.name "tracker-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/public/data/history.json
+          git diff --cached --quiet || git commit -m "Update history $(date -u +%F)"
+          git push
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build site
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to Cloudflare Pages
+        if: env.IS_MAIN == 'true' && env.HAS_CLOUDFLARE == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site/dist --project-name=boynton-tracker --branch=main

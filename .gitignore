@@ -7,3 +7,8 @@ __pycache__/
 .pytest_cache/
 out/
 *.egg-info/
+
+# Site
+site/node_modules/
+site/dist/
+site/public/data/summary.json
