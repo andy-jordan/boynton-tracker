@@ -41,8 +41,13 @@ jobs:
           RATINGS_CSV: ${{ secrets.RATINGS_CSV }}
         run: printf '%s\n' "$RATINGS_CSV" > model/data/ratings.csv
 
-      - name: Write hand-entered Torvik ratings from secret
-        if: env.HAS_TORVIK == 'true'
+      - name: Fetch Torvik ratings
+        id: torvik
+        continue-on-error: true
+        run: python scripts/fetch_torvik.py model/data/ratings.torvik.csv
+
+      - name: Write hand-entered Torvik ratings from secret (fallback)
+        if: steps.torvik.outcome != 'success' && env.HAS_TORVIK == 'true'
         env:
           RATINGS_TORVIK_CSV: ${{ secrets.RATINGS_TORVIK_CSV }}
         run: printf '%s\n' "$RATINGS_TORVIK_CSV" > model/data/ratings.torvik.csv

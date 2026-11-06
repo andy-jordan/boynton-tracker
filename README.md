@@ -27,7 +27,7 @@ Repo settings, Secrets and variables, Actions:
 | Name | Kind | Value |
 | --- | --- | --- |
 | `RATINGS_CSV` | Secret | Full contents of your hand-entered ratings CSV (`rank,team,conf,netrtg,adjt,as_of`). Without it the model uses `ratings.sample.csv` and the site shows an "illustrative" banner. Kept as a secret so KenPom's numbers never sit in the public repo. |
-| `RATINGS_TORVIK_CSV` | Secret | Same format, with Bart Torvik's AdjEM (AdjOE minus AdjDE) in `netrtg`. Powers the Torvik side of the page's ratings switch. |
+| `RATINGS_TORVIK_CSV` | Secret | Same format, with Bart Torvik's AdjEM (AdjOE minus AdjDE) in `netrtg`. Powers the Torvik side of the page's ratings switch. Now a fallback: each run first downloads Torvik's season `team_results.csv` (`scripts/fetch_torvik.py`, one request a day, allowed by his robots.txt) and uses the secret only if that fails. |
 | `CLOUDFLARE_API_TOKEN` | Secret | Cloudflare API token with the "Cloudflare Pages: Edit" permission |
 | `CLOUDFLARE_ACCOUNT_ID` | Variable | Your Cloudflare account ID (dashboard sidebar) |
 
