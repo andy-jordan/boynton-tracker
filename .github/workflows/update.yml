@@ -32,7 +32,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install model dependencies
-        run: pip install numpy pytest
+        run: pip install -e "model[dev]"
 
       - name: Write hand-entered ratings from secret
         if: env.HAS_RATINGS == 'true'
