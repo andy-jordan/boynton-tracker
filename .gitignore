@@ -6,3 +6,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 out/
+
+# Site
+site/node_modules/
+site/dist/
+site/public/data/summary.json
