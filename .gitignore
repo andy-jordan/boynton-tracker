@@ -1,0 +1,8 @@
+# KenPom ratings are hand-entered and must not be published
+model/data/ratings.csv
+model/data/*.tsv
+model/data/big_ten_schedule.synthetic.csv
+__pycache__/
+*.pyc
+.pytest_cache/
+out/
