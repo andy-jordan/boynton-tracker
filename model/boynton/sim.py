@@ -32,7 +32,6 @@ class Config:
     game_sd: float = 11.0     # SD of actual minus predicted margin
     rating_sd: float = 0.0    # per-sim, season-long rating uncertainty (points/100 poss)
     resume_per_win: float = 1.0   # NCAA seeding: resume points per win above expectation
-    resume_noise: float = 3.0     # noise on other teams' end-of-year resume
     at_large_cutoff: int = 44     # resume rank needed for an at-large bid
     # Typical NetRtg of seeds 12-16 (auto-bid teams), used for NCAA opponents.
     low_seed_net: dict = field(default_factory=lambda: {12: 9.0, 13: 5.0, 14: 2.0, 15: -2.0, 16: -8.0})
@@ -72,6 +71,9 @@ def draw_ratings(base: np.ndarray, n: int, rng: np.random.Generator, cfg: Config
 
 def _phi(x: float) -> float:
     return 0.5 * (1 + erf(x / sqrt(2)))
+
+
+_vphi = np.vectorize(_phi, otypes=[float])
 
 
 class Model:
@@ -142,6 +144,11 @@ class Model:
 
         # Regular season: Michigan non-conference + full Big Ten slate.
         mich_results = {}  # date -> Michigan-perspective win bool array
+        exp_wins = np.zeros(n)  # Michigan's expected wins given each sim's ratings
+        for g in self.mich_games:
+            h, a = self.idx[g.home], self.idx[g.away]
+            p_home = _vphi(self.mean_margin(net, h, a, g.neutral) / cfg.game_sd)
+            exp_wins += p_home if g.home == MICH else 1 - p_home
         for g in self.nonconf:
             m = self._play(net, g, rng, n, forced)
             mich_results[g.date] = (m > 0) if g.home == MICH else (m < 0)
@@ -182,7 +189,10 @@ class Model:
                        (w12_13, w10_15, w11_14, w8_9, w5, w7, w6, q1, q4, q2, q3, f1, f2, champ))
 
         # NCAA tournament.
-        made_ncaa, seed, s16 = self._ncaa(net, reg_wins + btt_wins, won_btt, rng)
+        # "Luck": wins above what this sim's ratings predicted. BTT wins are
+        # measured against their across-sim average.
+        luck = (reg_wins - exp_wins) + (btt_wins - btt_wins.mean())
+        made_ncaa, seed, s16 = self._ncaa(net, luck, won_btt, rng)
 
         b = {
             "24_wins": reg_wins >= cfg.wins_target,
@@ -197,16 +207,15 @@ class Model:
             "ncaa_seed": seed, "mich_results": mich_results,
         }
 
-    def _ncaa(self, net, total_wins, won_btt, rng):
+    def _ncaa(self, net, luck, won_btt, rng):
         cfg, n = self.cfg, self.cfg.n_sims
         mich_i = self.idx[MICH]
-        # Expected total wins (regular season + ~1.5 BTT games) from point ratings.
-        exp_w = sum(self.point_win_prob(g) if g.home == MICH else 1 - self.point_win_prob(g)
-                    for g in self.mich_games) + 1.5
-        # End-of-season resume: everyone else gets noise; Michigan gets its rating
-        # (in that sim) plus credit for wins above expectation.
-        resume = net + rng.normal(0, cfg.resume_noise, net.shape)
-        resume[:, mich_i] = net[:, mich_i] + cfg.resume_per_win * (total_wins - exp_w)
+        # End-of-season resume = rating in that sim + credit for wins above what
+        # that rating predicts. Michigan's luck is simulated; other teams get a
+        # random luck term with the same spread, so nobody is treated differently.
+        luck_sd = cfg.resume_per_win * float(np.std(luck))
+        resume = net + rng.normal(0, luck_sd, net.shape)
+        resume[:, mich_i] = net[:, mich_i] + cfg.resume_per_win * luck
         rank = (resume > resume[:, [mich_i]]).sum(axis=1) + 1
         made = (rank <= cfg.at_large_cutoff) | won_btt
         seed = np.where(made, np.minimum(np.ceil(rank / 4), 12), 0).astype(int)

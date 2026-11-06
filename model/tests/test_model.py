@@ -44,3 +44,14 @@ def test_probabilities_sane_and_forcing_moves_them():
 def test_record_counts_played_games():
     m = small()
     assert summarize(m, m.simulate())["record"] == {"wins": 1, "losses": 0, "conf_wins": 0, "conf_losses": 0}
+
+
+def test_cli_both_sources_json(tmp_path):
+    import json
+    from boynton.cli import main
+    out = tmp_path / "s.json"
+    main(["--sims", "500", "--json", str(out)])
+    d = json.loads(out.read_text())
+    assert set(d["by_source"]) == {"kenpom", "torvik"}
+    assert d["source"] == "kenpom" and 0 <= d["p_extension"] <= 1
+    assert all(s["source"] == k for k, s in d["by_source"].items())
