@@ -1,11 +1,11 @@
-"""python -m boynton [--sims N] [--rating-sd 3] [--force 2026-11-06=W] [--json out.json]"""
+"""python -m boynton [--source kenpom|torvik|both] [--sims N] [--rating-sd 3] [--force 2026-11-06=W] [--json out.json]"""
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
-from .data import load_ratings
+from .data import SOURCES, load_ratings, source_path
 from .sim import Config, Model, summarize
 
 
@@ -44,7 +44,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="boynton")
     ap.add_argument("--sims", type=int, default=20_000)
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--ratings", type=Path, help="ratings CSV or raw KenPom paste (.tsv)")
+    ap.add_argument("--source", choices=[*SOURCES, "both"], default="both",
+                    help="ratings source (default: run both; JSON's top level is kenpom)")
+    ap.add_argument("--ratings", type=Path, help="explicit ratings CSV or raw KenPom paste (.tsv); overrides --source")
     ap.add_argument("--hca", type=float, default=3.2)
     ap.add_argument("--game-sd", type=float, default=11.0)
     ap.add_argument("--rating-sd", type=float, default=0.0,
@@ -54,12 +56,34 @@ def main(argv=None):
     ap.add_argument("--json", type=Path, help="write summary JSON (probabilities only)")
     a = ap.parse_args(argv)
     cfg = Config(n_sims=a.sims, seed=a.seed, hca=a.hca, game_sd=a.game_sd, rating_sd=a.rating_sd)
-    model = Model(cfg, ratings=load_ratings(a.ratings) if a.ratings else None)
-    s = summarize(model, model.simulate(parse_force(a.force)))
-    print(report(s))
+    forced = parse_force(a.force)
+
+    def run(ratings, label):
+        model = Model(cfg, ratings=ratings)
+        s = summarize(model, model.simulate(forced))
+        s["source"] = label
+        return s
+
+    if a.ratings:
+        results = {"custom": run(load_ratings(a.ratings), "custom")}
+    else:
+        names = list(SOURCES) if a.source == "both" else [a.source]
+        results = {}
+        for name in names:
+            path, real = source_path(name)
+            s = run(load_ratings(path), name)
+            s["sample_data"] = not real
+            results[name] = s
+    for name, s in results.items():
+        print(f"===== {name.upper()}{' (SAMPLE DATA)' if s.get('sample_data') else ''} =====")
+        print(report(s), end="\n\n")
     if a.json:
+        # Top level stays the primary source's summary (backward compatible);
+        # every source's summary is under by_source.
+        primary = results.get("kenpom") or next(iter(results.values()))
+        out = {**primary, "by_source": results}
         a.json.parent.mkdir(parents=True, exist_ok=True)
-        a.json.write_text(json.dumps(s, indent=2))
+        a.json.write_text(json.dumps(out, indent=2))
 
 
 if __name__ == "__main__":
