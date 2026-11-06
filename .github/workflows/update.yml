@@ -56,10 +56,10 @@ jobs:
         run: |
           if python -m boynton --help | grep -q -- '--source'; then
             for src in kenpom torvik; do
-              python -m boynton --source "$src" --seed 2027 --json "out/summary.$src.json"
+              python -m boynton --source "$src" --seed 2027 --rating-sd 0 --json "out/summary.$src.json"
             done
           else
-            python -m boynton --seed 2027 --json out/summary.kenpom.json
+            python -m boynton --seed 2027 --rating-sd 0 --json out/summary.kenpom.json
           fi
 
       - name: Record history and stamp summaries
