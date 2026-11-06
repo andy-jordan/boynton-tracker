@@ -7,15 +7,20 @@ from pathlib import Path
 
 from .data import load_ratings
 from .sim import Config, Model, summarize
+from .whatif import next_games, what_if
 
 
-def parse_force(items):
-    out = {}
+def parse_pairs(items) -> list[tuple[str, object]]:
+    out = []
     for it in items or []:
         date, val = it.split("=")
         val = val.strip().upper()
-        out[date] = val if val in ("W", "L") else float(val)
+        out.append((date.strip(), val if val in ("W", "L") else float(val)))
     return out
+
+
+def parse_force(items) -> dict:
+    return dict(parse_pairs(items))
 
 
 def report(s: dict) -> str:
@@ -51,12 +56,33 @@ def main(argv=None):
                     help="season-long rating uncertainty per team (0 = point estimate)")
     ap.add_argument("--force", action="append",
                     help="scenario for a Michigan game: DATE=W, DATE=L or DATE=+10 (Michigan margin)")
+    ap.add_argument("--whatif", action="append",
+                    help="split a result's effect into direct + information: DATE=W, DATE=L or DATE=+10")
+    ap.add_argument("--decompose", type=int, default=0, metavar="K",
+                    help="direct/information split for W and L in the next K games")
     ap.add_argument("--json", type=Path, help="write summary JSON (probabilities only)")
     a = ap.parse_args(argv)
     cfg = Config(n_sims=a.sims, seed=a.seed, hca=a.hca, game_sd=a.game_sd, rating_sd=a.rating_sd)
     model = Model(cfg, ratings=load_ratings(a.ratings) if a.ratings else None)
-    s = summarize(model, model.simulate(parse_force(a.force)))
+    forced = parse_force(a.force)
+    res = model.simulate(forced)
+    s = summarize(model, res)
     print(report(s))
+    asks = parse_pairs(a.whatif)
+    for d in next_games(model, a.decompose):
+        asks += [(d, "W"), (d, "L")]
+    if asks:
+        if forced:
+            ap.error("--whatif/--decompose can't be combined with --force")
+        if cfg.rating_sd == 0:
+            print("\nNote: --rating-sd is 0, so results carry no information about ratings.")
+        print("\nWhat-if: P(ext) baseline -> direct (result banked) -> total (with what it says about ratings)")
+        rows = [what_if(model, d, o, res) for d, o in asks]
+        for r in rows:
+            print(f"  {r.date} {r.outcome:>4}  {r.baseline:6.1%} -> {r.direct:6.1%} -> {r.total:6.1%}"
+                  f"   direct {r.direct - r.baseline:+6.1%}  info {r.information:+6.1%}"
+                  f"   ({r.effective_sims:,.0f} sims)")
+        s["what_if"] = [r.as_dict() for r in rows]
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
         a.json.write_text(json.dumps(s, indent=2))

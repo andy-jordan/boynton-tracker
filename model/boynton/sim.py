@@ -31,6 +31,7 @@ class Config:
     hca: float = 3.2          # home-court advantage, points
     game_sd: float = 11.0     # SD of actual minus predicted margin
     rating_sd: float = 0.0    # per-sim, season-long rating uncertainty (points/100 poss)
+    blowout_cap: float = 25.0 # clip |observed - expected| margin before a rating update
     resume_per_win: float = 1.0   # NCAA seeding: resume points per win above expectation
     resume_noise: float = 3.0     # noise on other teams' end-of-year resume
     at_large_cutoff: int = 44     # resume rank needed for an at-large bid
@@ -43,28 +44,35 @@ class Config:
 # Hooks for the uncertainty / Bayesian-updating work (separate thread).
 # --------------------------------------------------------------------------
 
-def update_ratings(ratings: Ratings, played: list[Game]) -> Ratings:
-    """Hook: return ratings updated for games already played.
+def update_ratings(ratings: Ratings, played: list[Game], cfg: "Config | None" = None
+                   ) -> tuple[Ratings, dict[str, float]]:
+    """Hook: return (ratings, per-team sd) updated for games played after `as_of`.
 
-    Point-estimate mode returns the input unchanged, because the KenPom table you
-    enter already reflects games through its as_of date. A Bayesian version would
-    treat each rating as a prior (mean=NetRtg, sd~rating_sd) and update on the
-    observed margin vs. expectation.
+    The KenPom table already reflects games through its as_of date, so only
+    games dated after it are applied (none if as_of isn't a date). Each such
+    game is a normal-normal (Kalman) update on the rating gap; see update.py.
+    With rating_sd = 0 there is no uncertainty to update, so it's a no-op.
     """
-    return ratings
+    from .update import apply_results
+    cfg = cfg or Config()
+    return apply_results(ratings, played, cfg)
 
 
-def draw_ratings(base: np.ndarray, n: int, rng: np.random.Generator, cfg: Config) -> np.ndarray:
+def draw_ratings(base: np.ndarray, n: int, rng: np.random.Generator, cfg: Config,
+                 sd: np.ndarray | None = None) -> np.ndarray:
     """Hook: per-simulation team ratings, shape (n, n_teams).
 
-    Default: point ratings, optionally plus one season-long N(0, rating_sd) shift
-    per team per sim. Setting rating_sd > 0 makes early results informative: a sim
-    where Michigan beats UConn is more likely to be a sim where Michigan is good,
-    so the conditional tables pick up the "information" effect, not just the win.
+    Point ratings plus one season-long N(0, sd) shift per team per sim (sd =
+    rating_sd for every team unless a per-team array is passed). With sd > 0,
+    a sim where Michigan beats UConn is more likely to be a sim where Michigan is
+    good, so conditioning on a result picks up the "information" effect, not just
+    the win.
     """
     out = np.broadcast_to(base, (n, base.size)).copy()
-    if cfg.rating_sd > 0:
-        out += rng.normal(0, cfg.rating_sd, out.shape)
+    if sd is None:
+        sd = np.full(base.size, cfg.rating_sd)
+    if np.any(sd > 0):
+        out += rng.normal(0, 1, out.shape) * sd
     return out
 
 
@@ -80,7 +88,7 @@ class Model:
         self.cfg = cfg or Config()
         self.ratings = ratings or load_ratings()
         self.mich_games = schedule or load_michigan_schedule()
-        self.ratings = update_ratings(self.ratings, [g for g in self.mich_games if g.played])
+        self.ratings, sd_map = update_ratings(self.ratings, [g for g in self.mich_games if g.played], self.cfg)
         self.b10_games = load_big_ten_schedule(self.mich_games)
         self.nonconf = [g for g in self.mich_games if not g.conference]
         # Team universe: every rated team plus anyone on a schedule.
@@ -94,6 +102,7 @@ class Model:
         pairs = [self.ratings.get(t) for t in teams]
         self.base_net = np.array([p[0] for p in pairs])
         self.tempo = np.array([p[1] for p in pairs])
+        self.base_sd = np.array([sd_map.get(t, self.cfg.rating_sd) for t in teams])
         self.b10_idx = np.array([self.idx[t] for t in BIG_TEN])
 
     # ---- single-game pieces -------------------------------------------------
@@ -105,7 +114,9 @@ class Model:
         """Pre-game P(home wins) from point ratings (no rating uncertainty)."""
         h, a = self.idx[g.home], self.idx[g.away]
         mu = float(self.mean_margin(self.base_net, h, a, g.neutral))
-        sd = sqrt(self.cfg.game_sd ** 2 + 2 * self.cfg.rating_sd ** 2)
+        poss = (self.tempo[h] + self.tempo[a]) / 2
+        rating_var = (self.base_sd[h] ** 2 + self.base_sd[a] ** 2) * (poss / 100) ** 2
+        sd = sqrt(self.cfg.game_sd ** 2 + rating_var)
         return _phi(mu / sd)
 
     def _play(self, net, g: Game, rng, n, forced: dict) -> np.ndarray:
@@ -138,13 +149,22 @@ class Model:
         cfg, forced = self.cfg, forced or {}
         n = cfg.n_sims
         rng = np.random.default_rng(cfg.seed)
-        net = draw_ratings(self.base_net, n, rng, cfg)
+        net = draw_ratings(self.base_net, n, rng, cfg, self.base_sd)
 
         # Regular season: Michigan non-conference + full Big Ten slate.
         mich_results = {}  # date -> Michigan-perspective win bool array
+        mich_mu = {}       # date -> Michigan-perspective expected margin per sim (pre-noise)
+        mich_margin = {}   # date -> Michigan-perspective simulated margin per sim
+
+        def record(g, m):
+            sign = 1 if g.home == MICH else -1
+            h, a = self.idx[g.home], self.idx[g.away]
+            mich_mu[g.date] = sign * self.mean_margin(net, h, a, g.neutral)
+            mich_margin[g.date] = sign * m
+            mich_results[g.date] = sign * m > 0
+
         for g in self.nonconf:
-            m = self._play(net, g, rng, n, forced)
-            mich_results[g.date] = (m > 0) if g.home == MICH else (m < 0)
+            record(g, self._play(net, g, rng, n, forced))
         T = len(BIG_TEN)
         pos = {t: i for i, t in enumerate(BIG_TEN)}
         conf_w = np.zeros((n, T))
@@ -157,7 +177,7 @@ class Model:
             conf_pd[:, hi] += m
             conf_pd[:, ai] -= m
             if MICH in (g.home, g.away) and g.date:
-                mich_results[g.date] = (m > 0) if g.home == MICH else (m < 0)
+                record(g, m)
         reg_wins = sum(mich_results.values()).astype(int)
 
         # Standings. Tiebreak approximation: conference point differential, then random.
@@ -195,6 +215,7 @@ class Model:
             "n": n, "benchmarks": b, "hits": hits, "extension": hits >= 2,
             "reg_wins": reg_wins, "finish": mich_finish, "made_ncaa": made_ncaa,
             "ncaa_seed": seed, "mich_results": mich_results,
+            "mich_mu": mich_mu, "mich_margin": mich_margin,
         }
 
     def _ncaa(self, net, total_wins, won_btt, rng):

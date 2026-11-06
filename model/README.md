@@ -54,15 +54,27 @@ Teams missing from a partial ratings table get a fallback NetRtg of -7 (about th
 - **Leverage table.** For each remaining game: P(win), P(extension | win),
   P(extension | loss), computed by conditioning the same simulations.
 
-## Uncertainty hooks
+## Rating uncertainty and what-ifs
 
-`boynton/sim.py` has two functions meant to be replaced by the Bayesian work:
+- **Ratings as distributions.** `--rating-sd S` gives every team one season-long
+  N(0, S) shift per sim (NetRtg points). S is an assumption, not yet calibrated:
+  6 is a rough early-November guess, 3 a more confident one. Results are sensitive to it.
+- **Updating from results** (`boynton/update.py`). Games played *after* the ratings
+  file's `as_of` date update ratings with a normal-normal (Kalman) step on the margin
+  vs. expectation, with surprises capped at 25 points. Games on or before `as_of`
+  are skipped because KenPom already includes them. Replace the ratings file to
+  re-anchor.
+- **What-ifs** (`boynton/whatif.py`). A result moves P(extension) in two ways:
+  - *direct*: the win (or loss, or margin) is banked and ratings are left alone.
+    This re-runs the same sims with the game forced.
+  - *information*: what the result says about how good the teams are. The forced
+    sims are weighted by how likely the result was given each sim's drawn ratings.
 
-- `update_ratings(ratings, played_games)`: returns updated ratings. It's a no-op
-  for now, because the KenPom table already includes the games played before its date.
-- `draw_ratings(base, n, rng, cfg)`: per-simulation team ratings. With
-  `--rating-sd > 0`, each team gets one season-long shift per sim. Once that's on,
-  the leverage table picks up the *information* in a result (a win over UConn makes
-  "Michigan is good" sims more likely), on top of the win itself.
+  Information is 0 when `--rating-sd` is 0.
+
+```bash
+python -m boynton --rating-sd 6 --whatif 2026-11-06=W --whatif 2026-11-06=+10
+python -m boynton --rating-sd 6 --decompose 5     # W and L for the next 5 games
+```
 
 Only probabilities are ever written out (`--json`); ratings never are.
