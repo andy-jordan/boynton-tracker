@@ -82,8 +82,8 @@ function upcoming(games: LeverageGame[]): LeverageGame[] {
 async function main() {
   const app = document.getElementById('app')!;
   const [summary, history] = await Promise.all([
-    load<Summary>('/data/summary.json'),
-    load<HistoryPoint[]>('/data/history.json'),
+    load<Summary>('data/summary.json'),
+    load<HistoryPoint[]>('data/history.json'),
   ]);
   if (!summary) {
     app.innerHTML = '<p class="loading">No simulation output yet. Check back after the next update.</p>';
