@@ -39,3 +39,8 @@ def test_probabilities_sane_and_forcing_moves_them():
     loss = summarize(m, m.simulate({"2026-11-06": "L"}))
     assert win["reg_wins_mean"] > loss["reg_wins_mean"]
     assert win["p_extension"] >= loss["p_extension"]
+
+
+def test_record_counts_played_games():
+    m = small()
+    assert summarize(m, m.simulate())["record"] == {"wins": 1, "losses": 0, "conf_wins": 0, "conf_losses": 0}

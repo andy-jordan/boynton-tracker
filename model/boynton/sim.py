@@ -256,6 +256,19 @@ class Model:
 
 # --------------------------------------------------------------------------
 
+def _record(games: list[Game]) -> dict:
+    """Michigan's actual record so far (overall and Big Ten)."""
+    out = {"wins": 0, "losses": 0, "conf_wins": 0, "conf_losses": 0}
+    for g in games:
+        if not g.played:
+            continue
+        won = (g.home_score > g.away_score) == (g.home == MICH)
+        out["wins" if won else "losses"] += 1
+        if g.conference:
+            out["conf_wins" if won else "conf_losses"] += 1
+    return out
+
+
 def summarize(model: Model, res: dict) -> dict:
     b = res["benchmarks"]
     out = {
@@ -270,6 +283,7 @@ def summarize(model: Model, res: dict) -> dict:
         "b10_finish_dist": {int(k): float((res["finish"] == k).mean()) for k in range(1, 19)},
         "p_make_ncaa": float(res["made_ncaa"].mean()),
         "missing_ratings": sorted(model.ratings.missing),
+        "record": _record(model.mich_games),
     }
     # Leverage: how each remaining Michigan game moves P(extension).
     lev = []

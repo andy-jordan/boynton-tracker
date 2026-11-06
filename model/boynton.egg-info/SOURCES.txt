@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+boynton/__init__.py
+boynton/__main__.py
+boynton/bigten.py
+boynton/cli.py
+boynton/data.py
+boynton/sim.py
+boynton.egg-info/PKG-INFO
+boynton.egg-info/SOURCES.txt
+boynton.egg-info/dependency_links.txt
+boynton.egg-info/entry_points.txt
+boynton.egg-info/requires.txt
+boynton.egg-info/top_level.txt
+tests/test_model.py
