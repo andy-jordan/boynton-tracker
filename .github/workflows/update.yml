@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HAS_RATINGS: ${{ secrets.RATINGS_CSV != '' }}
+      HAS_TORVIK: ${{ secrets.RATINGS_TORVIK_CSV != '' }}
       HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && vars.CLOUDFLARE_ACCOUNT_ID != '' }}
       IS_MAIN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     steps:
@@ -40,18 +41,34 @@ jobs:
           RATINGS_CSV: ${{ secrets.RATINGS_CSV }}
         run: printf '%s\n' "$RATINGS_CSV" > model/data/ratings.csv
 
+      - name: Write hand-entered Torvik ratings from secret
+        if: env.HAS_TORVIK == 'true'
+        env:
+          RATINGS_TORVIK_CSV: ${{ secrets.RATINGS_TORVIK_CSV }}
+        run: printf '%s\n' "$RATINGS_TORVIK_CSV" > model/data/ratings.torvik.csv
+
       - name: Test model
         working-directory: model
         run: python -m pytest -q
 
-      - name: Run simulation
+      - name: Run simulation for each ratings source
         working-directory: model
-        run: python -m boynton --seed 2027 --json out/summary.json
-
-      - name: Record history and stamp summary
         run: |
-          python scripts/append_history.py model/out/summary.json site/public/data/history.json
-          cp model/out/summary.json site/public/data/summary.json
+          if python -m boynton --help | grep -q -- '--source'; then
+            for src in kenpom torvik; do
+              python -m boynton --source "$src" --seed 2027 --rating-sd 0 --json "out/summary.$src.json"
+            done
+          else
+            python -m boynton --seed 2027 --rating-sd 0 --json out/summary.kenpom.json
+          fi
+
+      - name: Record history and stamp summaries
+        run: |
+          for f in model/out/summary.*.json; do
+            src=$(basename "$f" .json | cut -d. -f2)
+            python scripts/append_history.py "$f" site/public/data/history.json "$src"
+            cp "$f" site/public/data/
+          done
 
       - name: Commit history
         if: env.IS_MAIN == 'true'

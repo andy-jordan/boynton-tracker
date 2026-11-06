@@ -12,4 +12,4 @@ model/data/ratings.torvik.csv
 # Site
 site/node_modules/
 site/dist/
-site/public/data/summary.json
+site/public/data/summary*.json

@@ -17,6 +17,8 @@ export interface LeverageGame {
 }
 
 export interface Summary {
+  source?: 'kenpom' | 'torvik';
+  sample_data?: boolean;
   generated_at?: string;
   as_of?: string; // ratings date, or "illustrative" when the sample ratings were used
   n_sims?: number;
@@ -29,6 +31,7 @@ export interface Summary {
 }
 
 export interface HistoryPoint {
+  source?: 'kenpom' | 'torvik';
   date: string;
   p_extension: number;
   note?: string;

@@ -62,3 +62,8 @@ th { color: var(--muted); font-weight: 500; }
 footer { margin-top: 48px; font-size: 14px; color: var(--muted); }
 footer a { color: inherit; }
 tr.hot td { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
+.toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 20px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+.toggle .muted { padding: 0 8px 0 10px; }
+.toggle button { font: inherit; font-size: 14px; border: 0; border-radius: 999px; padding: 6px 14px; background: transparent; color: var(--fg); cursor: pointer; }
+.toggle button[aria-checked="true"] { background: var(--accent); color: var(--bg); font-weight: 600; }
+.toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
