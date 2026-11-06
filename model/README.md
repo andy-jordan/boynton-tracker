@@ -29,7 +29,7 @@ python -m pytest -q
 | `data/ratings.torvik.csv` | Bart Torvik T-Rank, same header (`netrtg` = AdjOE - AdjDE) | **No** |
 | `data/ratings.sample.csv` | Perturbed, illustrative numbers so the pipeline runs without the real file | Yes |
 | `data/michigan_schedule.csv` | All 30 games; fill in `result` (e.g. `W 84-68`, Michigan first) as games finish | Yes |
-| `data/big_ten_schedule.csv` | *Optional* full 180-game league schedule (`date,home,away,home_score,away_score`) | Yes, once added |
+| `data/big_ten_schedule.csv` | Full 180-game league schedule (`date,home,away,home_score,away_score`), from Torvik's team pages on 2026-11-06 | Yes |
 
 `--ratings path.tsv` also accepts a raw copy-paste of the KenPom front-page table.
 Teams missing from a partial ratings table get a fallback NetRtg of -7 (about the
@@ -40,9 +40,8 @@ Teams missing from a partial ratings table get a fallback NetRtg of -7 (about th
 - **Games.** Expected margin = (NetRtg_home - NetRtg_away) x possessions / 100 + 3.2
   home court (0 at neutral sites), possessions = mean AdjT. Actual margin ~ Normal(expected, 11).
 - **Regular season.** Michigan's 30 games are simulated, and so is the whole Big Ten
-  slate, because standings depend on everyone. Until the official league schedule is
-  added, other teams' games are a synthetic but valid 20-game schedule (each pair
-  meets once, extra games fill out to 20). Michigan's own league games are real.
+  slate, because standings depend on everyone. The full 180-game league schedule is in
+  `data/big_ten_schedule.csv`; if it's removed, a synthetic 20-game schedule is used instead.
 - **Top 4.** Rank by conference wins; ties broken by league point differential,
   then at random. Real Big Ten tiebreakers are a TODO.
 - **Big Ten Tournament.** 15-team bracket (seeds 16 to 18 miss out), neutral site.

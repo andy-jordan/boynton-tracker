@@ -55,3 +55,12 @@ def test_cli_both_sources_json(tmp_path):
     assert set(d["by_source"]) == {"kenpom", "torvik"}
     assert d["source"] == "kenpom" and 0 <= d["p_extension"] <= 1
     assert all(s["source"] == k for k, s in d["by_source"].items())
+
+
+def test_michigan_conf_results_flow_into_big_ten_schedule():
+    games = load_michigan_schedule()
+    g = next(g for g in games if g.date == "2026-12-09")  # at Rutgers
+    g.home_score, g.away_score = 60, 70
+    sched = load_big_ten_schedule(games)
+    b = next(x for x in sched if x.date == "2026-12-09" and "Michigan" in (x.home, x.away))
+    assert b.played and (b.home_score, b.away_score) == (60, 70)

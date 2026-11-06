@@ -31,6 +31,12 @@ def load_big_ten_schedule(michigan_games: list[Game], seed: int = 2027) -> list[
             if r.get("home_score"):
                 g.home_score, g.away_score = int(r["home_score"]), int(r["away_score"])
             out.append(g)
+        # Michigan's results are entered in michigan_schedule.csv; carry them over.
+        mich = {(g.date, g.home, g.away): g for g in michigan_games if g.conference}
+        for g in out:
+            m = mich.get((g.date, g.home, g.away))
+            if m is not None and m.played and not g.played:
+                g.home_score, g.away_score = m.home_score, m.away_score
         return out
     return _synthetic(michigan_games, seed)
 
