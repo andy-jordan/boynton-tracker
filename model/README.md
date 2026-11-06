@@ -13,7 +13,8 @@ coach) hits **at least 2 of 4** benchmarks that trigger an automatic extension:
 ```bash
 cd model
 pip install -e .[dev]
-python -m boynton                       # baseline point estimate
+python -m boynton                       # baseline point estimate, KenPom and Torvik
+python -m boynton --source torvik       # one source only
 python -m boynton --rating-sd 3         # add season-long rating uncertainty
 python -m boynton --force 2026-11-06=W  # what-if: Michigan beats UConn
 python -m boynton --force 2026-11-06=+10 --json out/summary.json
@@ -25,6 +26,7 @@ python -m pytest -q
 | File | What | In git? |
 |---|---|---|
 | `data/ratings.csv` | KenPom front page, hand-entered: `rank,team,conf,netrtg,adjt,as_of` | **No.** KenPom's terms forbid republishing |
+| `data/ratings.torvik.csv` | Bart Torvik T-Rank, same header (`netrtg` = AdjOE - AdjDE) | **No** |
 | `data/ratings.sample.csv` | Perturbed, illustrative numbers so the pipeline runs without the real file | Yes |
 | `data/michigan_schedule.csv` | All 30 games; fill in `result` (e.g. `W 84-68`, Michigan first) as games finish | Yes |
 | `data/big_ten_schedule.csv` | *Optional* full 180-game league schedule (`date,home,away,home_score,away_score`) | Yes, once added |
@@ -65,4 +67,6 @@ Teams missing from a partial ratings table get a fallback NetRtg of -7 (about th
   the leverage table picks up the *information* in a result (a win over UConn makes
   "Michigan is good" sims more likely), on top of the win itself.
 
-Only probabilities are ever written out (`--json`); ratings never are.
+Only probabilities are ever written out (`--json`); ratings never are. The JSON's
+top level is the KenPom summary (or whichever single `--source` was run), each
+summary carries `source` and `sample_data`, and `by_source` holds every source run.

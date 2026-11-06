@@ -64,15 +64,29 @@ def _num(s: str) -> float:
     return float(s.replace("+", ""))
 
 
-def load_ratings(path: Path | None = None) -> Ratings:
+# Ratings sources. Each real file is hand-entered and gitignored; when it's
+# missing the source falls back to the illustrative sample file.
+SOURCES = {
+    "kenpom": "ratings.csv",
+    "torvik": "ratings.torvik.csv",
+}
+SAMPLE = "ratings.sample.csv"
+
+
+def source_path(source: str) -> tuple[Path, bool]:
+    """Path for a ratings source, plus whether it's the real file (vs. sample)."""
+    real = DATA_DIR / SOURCES[source]
+    return (real, True) if real.exists() else (DATA_DIR / SAMPLE, False)
+
+
+def load_ratings(path: Path | None = None, source: str = "kenpom") -> Ratings:
     """Load ratings.csv (or ratings.sample.csv), or a raw KenPom paste (.tsv/.txt).
 
     A raw paste is the front-page table copied from the browser: tab-separated,
     header repeated every 40 rows, value/rank pairs after NetRtg.
     """
     if path is None:
-        real = DATA_DIR / "ratings.csv"
-        path = real if real.exists() else DATA_DIR / "ratings.sample.csv"
+        path, _ = source_path(source)
     path = Path(path)
     text = path.read_text()
     net, tempo, as_of = {}, {}, ""
