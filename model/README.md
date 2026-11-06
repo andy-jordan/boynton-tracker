@@ -46,11 +46,14 @@ Teams missing from a partial ratings table get a fallback NetRtg of -7 (about th
 - **Top 4.** Rank by conference wins; ties broken by league point differential,
   then at random. Real Big Ten tiebreakers are a TODO.
 - **Big Ten Tournament.** 15-team bracket (seeds 16 to 18 miss out), neutral site.
-- **NCAA.** Michigan's resume = its rating + 1 point per win above expectation;
-  other teams' resumes = rating + Normal(0, 3) noise. Top 44 in resume get an at-large
-  bid (BTT champ is in automatically). Seed = ceil(rank / 4), capped at 12.
+- **NCAA.** Resume = rating + 1 point per win above what that sim's ratings
+  predicted (the "luck"). Michigan's luck is simulated; every other team gets a
+  random luck term with the same spread. Top 44 in resume get an at-large bid
+  (BTT champ is in automatically). Seed = ceil(rank / 4), capped at 12.
   Opponents in the R64 and R32 come from the right seed lines (seeds 12 to 16 use
-  typical auto-bid strength). Make the Sweet 16 = win both.
+  typical auto-bid strength). Make the Sweet 16 = win both. On Torvik inputs this
+  gives a mean seed of 4.8 and 92.5% to make the field (with `--rating-sd 3`);
+  Torvik's own page shows 4.8 and 89.4%.
 - **Played games** use actual results. `--force DATE=W|L|+margin` sets a future
   Michigan game for what-if analysis.
 - **Leverage table.** For each remaining game: P(win), P(extension | win),
