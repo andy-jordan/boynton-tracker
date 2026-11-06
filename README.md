@@ -13,7 +13,7 @@ Big Ten Tournament title, or a Sweet 16 berth.
 
 The `Update tracker` workflow runs daily at 11:00 UTC, on pushes to `main` that touch the
 model, site or scripts, and from the Actions tab ("Run workflow"). It tests and runs the model,
-copies `model/out/summary.json` into the site, appends today's row to `history.json` (skipped
+runs once per ratings source (KenPom and Torvik), copies each `summary.<source>.json` into the site, appends today's row per source to `history.json` (skipped
 while the sample ratings are in use), commits that file back, builds the site, and deploys it
 to Cloudflare Pages.
 
@@ -27,6 +27,7 @@ Repo settings, Secrets and variables, Actions:
 | Name | Kind | Value |
 | --- | --- | --- |
 | `RATINGS_CSV` | Secret | Full contents of your hand-entered ratings CSV (`rank,team,conf,netrtg,adjt,as_of`). Without it the model uses `ratings.sample.csv` and the site shows an "illustrative" banner. Kept as a secret so KenPom's numbers never sit in the public repo. |
+| `RATINGS_TORVIK_CSV` | Secret | Same format, with Bart Torvik's AdjEM (AdjOE minus AdjDE) in `netrtg`. Powers the Torvik side of the page's ratings switch. |
 | `CLOUDFLARE_API_TOKEN` | Secret | Cloudflare API token with the "Cloudflare Pages: Edit" permission |
 | `CLOUDFLARE_ACCOUNT_ID` | Variable | Your Cloudflare account ID (dashboard sidebar) |
 
@@ -37,7 +38,7 @@ workflow still builds the site but skips the deploy.
 ## Local preview
 
 ```
-cd model && python -m boynton --json out/summary.json && cd ..
-cp model/out/summary.json site/public/data/summary.json
+cd model && python -m boynton --source kenpom --json out/summary.kenpom.json && cd ..
+cp model/out/summary.kenpom.json site/public/data/
 cd site && npm install && npm run dev
 ```

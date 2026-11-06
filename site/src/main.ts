@@ -79,28 +79,55 @@ function upcoming(games: LeverageGame[]): LeverageGame[] {
     .slice(0, 8);
 }
 
-async function main() {
-  const app = document.getElementById('app')!;
-  const [summary, history] = await Promise.all([
-    load<Summary>('data/summary.json'),
-    load<HistoryPoint[]>('data/history.json'),
-  ]);
-  if (!summary) {
-    app.innerHTML = '<p class="loading">No simulation output yet. Check back after the next update.</p>';
-    return;
+type Source = 'kenpom' | 'torvik';
+const SOURCES: Record<Source, { name: string; url: string }> = {
+  kenpom: { name: 'KenPom', url: 'https://kenpom.com' },
+  torvik: { name: 'Bart Torvik (T-Rank)', url: 'https://barttorvik.com' },
+};
+const SHORT: Record<Source, string> = { kenpom: 'KenPom', torvik: 'Torvik' };
+
+function readChoice(available: Source[]): Source {
+  const fromUrl = new URLSearchParams(location.search).get('source');
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem('ratings-source');
+  } catch {
+    /* storage blocked: fall through */
   }
+  for (const c of [fromUrl, saved]) if (c && (available as string[]).includes(c)) return c as Source;
+  return available[0];
+}
+
+function render(app: HTMLElement, src: Source, summaries: Partial<Record<Source, Summary>>, history: HistoryPoint[]) {
+  const summary = summaries[src]!;
+  const available = Object.keys(summaries) as Source[];
   const benches = normalizeBenchmarks(summary.benchmarks);
-  const hist = history ?? [];
+  // Rows without a source predate the switch and were KenPom runs.
+  const hist = history.filter((h) => (h.source ?? 'kenpom') === src);
   const prev = hist.length >= 2 ? hist.at(-2)!.p_extension : null;
   const delta = prev === null ? '' : summary.p_extension - prev;
+  const credit = SOURCES[src];
 
   app.innerHTML = `
-    ${summary.as_of === 'illustrative' ? '<p class="banner">Illustrative ratings: these numbers come from sample data, not real ratings.</p>' : ''}
+    ${summary.as_of === 'illustrative' || summary.sample_data ? `<p class="banner">Illustrative ratings: these ${SHORT[src]} numbers come from sample data, not real ratings.</p>` : ''}
     <header>
       <p class="eyebrow">Michigan basketball</p>
       <h1>Will Mike Boynton earn his extension?</h1>
       <p class="lede">He gets an automatic extension by hitting 2 of these 4 benchmarks.</p>
     </header>
+    ${
+      available.length > 1
+        ? `<div class="toggle" role="radiogroup" aria-label="Ratings source">
+            <span class="muted">Ratings:</span>
+            ${available
+              .map(
+                (s) =>
+                  `<button type="button" role="radio" aria-checked="${s === src}" data-source="${s}">${SHORT[s]}</button>`,
+              )
+              .join('')}
+          </div>`
+        : ''
+    }
     <section class="hero">
       <div class="big">${pct(summary.p_extension)}</div>
       <div class="hero-meta">
@@ -133,9 +160,51 @@ async function main() {
     </section>
     <footer>
       <p>Method: we simulate the rest of the season, the Big Ten Tournament and the NCAA tournament thousands of times from team efficiency ratings, and count how often Boynton hits at least two benchmarks.
-      Ratings via <a href="https://kenpom.com">KenPom</a>${summary.as_of && summary.as_of !== 'illustrative' ? `, as of ${esc(summary.as_of)}` : ''}. Not affiliated with the University of Michigan or KenPom.</p>
+      Ratings via <a href="${credit.url}">${credit.name}</a>${summary.as_of && summary.as_of !== 'illustrative' ? `, as of ${esc(summary.as_of)}` : ''}. Not affiliated with the University of Michigan, KenPom or Bart Torvik.</p>
       ${summary.generated_at ? `<p class="muted">Updated ${esc(summary.generated_at)}</p>` : ''}
     </footer>`;
+
+  app.querySelectorAll<HTMLButtonElement>('.toggle button').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.source as Source;
+      try {
+        localStorage.setItem('ratings-source', next);
+      } catch {
+        /* ignore */
+      }
+      const url = new URL(location.href);
+      url.searchParams.set('source', next);
+      history_replace(url);
+      render(app, next, summaries, history);
+    }),
+  );
+}
+
+function history_replace(url: URL) {
+  try {
+    window.history.replaceState(null, '', url);
+  } catch {
+    /* sandboxed frame: ignore */
+  }
+}
+
+async function main() {
+  const app = document.getElementById('app')!;
+  const [kenpom, torvik, legacy, history] = await Promise.all([
+    load<Summary>('data/summary.kenpom.json'),
+    load<Summary>('data/summary.torvik.json'),
+    load<Summary>('data/summary.json'),
+    load<HistoryPoint[]>('data/history.json'),
+  ]);
+  const summaries: Partial<Record<Source, Summary>> = {};
+  if (kenpom ?? legacy) summaries.kenpom = (kenpom ?? legacy)!;
+  if (torvik) summaries.torvik = torvik;
+  const available = Object.keys(summaries) as Source[];
+  if (!available.length) {
+    app.innerHTML = '<p class="loading">No simulation output yet. Check back after the next update.</p>';
+    return;
+  }
+  render(app, readChoice(available), summaries, history ?? []);
 }
 
 main();
