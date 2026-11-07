@@ -69,3 +69,13 @@ def test_michigan_conf_results_flow_into_big_ten_schedule():
     sched = load_big_ten_schedule(games)
     b = next(x for x in sched if x.date == "2026-12-09" and "Michigan" in (x.home, x.away))
     assert b.played and (b.home_score, b.away_score) == (60, 70)
+
+
+def test_top4_counts_ties_and_table_is_consistent():
+    m = small()
+    out = summarize(m, m.simulate())
+    t = out["b10_table"]
+    assert abs(sum(r["top4"] for r in t.values()) - 4) < 1e-9
+    assert abs(sum(r["btt"] for r in t.values()) - 1) < 1e-9
+    assert all(r["top4_ties"] >= r["top4"] for r in t.values())
+    assert out["benchmarks"]["top4"] == t["Michigan"]["top4_ties"]
