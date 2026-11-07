@@ -51,11 +51,14 @@ def main(argv=None):
     ap.add_argument("--game-sd", type=float, default=11.0)
     ap.add_argument("--rating-sd", type=float, default=0.0,
                     help="season-long rating uncertainty per team (0 = point estimate)")
+    ap.add_argument("--uncertainty", choices=["constant", "drift"], default="constant",
+                    help="constant: one season-long shift of --rating-sd; drift: random walk calibrated to historical KenPom moves")
     ap.add_argument("--force", action="append",
                     help="scenario for a Michigan game: DATE=W, DATE=L or DATE=+10 (Michigan margin)")
     ap.add_argument("--json", type=Path, help="write summary JSON (probabilities only)")
     a = ap.parse_args(argv)
-    cfg = Config(n_sims=a.sims, seed=a.seed, hca=a.hca, game_sd=a.game_sd, rating_sd=a.rating_sd)
+    cfg = Config(n_sims=a.sims, seed=a.seed, hca=a.hca, game_sd=a.game_sd, rating_sd=a.rating_sd,
+                 uncertainty=a.uncertainty)
     forced = parse_force(a.force)
 
     def run(ratings, label):

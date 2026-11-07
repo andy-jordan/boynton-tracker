@@ -36,6 +36,10 @@ class Config:
     # Typical NetRtg of seeds 12-16 (auto-bid teams), used for NCAA opponents.
     low_seed_net: dict = field(default_factory=lambda: {12: 9.0, 13: 5.0, 14: 2.0, 15: -2.0, 16: -8.0})
     wins_target: int = 24
+    # Rating uncertainty mode: "constant" = one season-long N(0, rating_sd) shift
+    # per team per sim (rating_sd=0 means none); "drift" = random walk calibrated
+    # to how far KenPom ratings historically move between now and Selection Sunday.
+    uncertainty: str = "constant"
     top4_counts_ties: bool = True  # a tie for 4th counts (Torvik convention; Andy 2026-11-07)
 
 
@@ -66,6 +70,55 @@ def draw_ratings(base: np.ndarray, n: int, rng: np.random.Generator, cfg: Config
     if cfg.rating_sd > 0:
         out += rng.normal(0, cfg.rating_sd, out.shape)
     return out
+
+
+# Historical KenPom (2012-2026, top-100 teams): SD of (rating on date) minus
+# (rating on Selection Sunday), in NetRtg points. Mapped from POM ranks via the
+# current rank->NetRtg curve; see the uncertainty thread / PR #3.
+DRIFT_MISS_SD = [("11-07", 5.9), ("12-05", 5.1), ("12-25", 4.3), ("01-15", 3.6),
+                 ("02-05", 2.8), ("02-25", 1.9), ("03-08", 1.1), ("03-15", 0.0)]
+
+
+def _season_key(date: str) -> str:
+    """Sortable within-season key: Nov-Dec before Jan-Apr."""
+    mmdd = date[5:]
+    return ("0" if mmdd >= "07-01" else "1") + mmdd
+
+
+def drift_paths(base: np.ndarray, n: int, rng: np.random.Generator, as_of: str):
+    """Random-walk ratings. Returns (knot_keys, deltas list, final_delta).
+
+    The walk starts at 0 on the ratings date and has variance s(now)^2 - s(t)^2
+    at time t, so by Selection Sunday each team's total move has the historical
+    SD s(now). Increments are independent across teams and knots.
+    """
+    now = _season_key(as_of[:10]) if as_of[:4].isdigit() else _season_key("2026-11-07")
+    knots = [(_season_key("2026-" + d), sd) for d, sd in DRIFT_MISS_SD]
+    # miss SD as of the ratings date (interpolate on the table)
+    def miss_at(k):
+        prev = knots[0]
+        for kk, sd in knots:
+            if kk >= k:
+                if kk == prev[0]:
+                    return sd
+                return prev[1] + (sd - prev[1]) * (_daynum(k) - _daynum(prev[0])) / (_daynum(kk) - _daynum(prev[0]))
+            prev = (kk, sd)
+        return 0.0
+    s_now = miss_at(now)
+    keys, deltas, d, s_prev = [now], [np.zeros((n, base.size))], np.zeros((n, base.size)), s_now
+    for k, sd in knots:
+        if k <= now:
+            continue
+        sd = min(sd, s_now)
+        d = d + rng.normal(0, sqrt(max(s_prev ** 2 - sd ** 2, 0.0)), d.shape)
+        keys.append(k); deltas.append(d); s_prev = sd
+    return keys, deltas, d
+
+
+def _daynum(key: str) -> int:
+    m, dd = int(key[1:3]), int(key[4:6])
+    cum = {11: 0, 12: 30, 1: 61, 2: 92, 3: 120, 4: 151, 7: -122, 8: -91, 9: -60, 10: -30}
+    return cum[m] + dd
 
 
 # --------------------------------------------------------------------------
@@ -141,24 +194,47 @@ class Model:
         cfg, forced = self.cfg, forced or {}
         n = cfg.n_sims
         rng = np.random.default_rng(cfg.seed)
-        net = draw_ratings(self.base_net, n, rng, cfg)
+        if cfg.uncertainty == "drift":
+            # Walk only the teams that play regular-season games we simulate;
+            # everyone gets a full-season move for the postseason.
+            sub = sorted({self.idx[t] for g in self.mich_games + self.b10_games for t in (g.home, g.away)})
+            keys, deltas, final_sub = drift_paths(self.base_net[sub], n, rng, self.ratings.as_of)
+            s_now = float(np.std(final_sub)) if final_sub.size else 0.0
+            net = self.base_net + rng.normal(0, s_now, (n, self.base_net.size))
+            net[:, sub] = self.base_net[sub] + final_sub   # postseason (BTT, NCAA) ratings
+            col = {t: j for j, t in enumerate(sub)}
+            base = self.base_net
+
+            class _KnotNet:
+                def __init__(self, d): self.d = d
+                def __getitem__(self, key):            # supports net[..., team]
+                    t = key[-1]
+                    return base[t] + self.d[:, col[t]]
+
+            def net_for(date: str):
+                k = _season_key(date) if date else keys[-1]
+                i = max([j for j, kk in enumerate(keys) if kk <= k] or [0])
+                return _KnotNet(deltas[i])
+        else:
+            net = draw_ratings(self.base_net, n, rng, cfg)
+            net_for = lambda date: net
 
         # Regular season: Michigan non-conference + full Big Ten slate.
         mich_results = {}  # date -> Michigan-perspective win bool array
         exp_wins = np.zeros(n)  # Michigan's expected wins given each sim's ratings
         for g in self.mich_games:
             h, a = self.idx[g.home], self.idx[g.away]
-            p_home = _vphi(self.mean_margin(net, h, a, g.neutral) / cfg.game_sd)
+            p_home = _vphi(self.mean_margin(net_for(g.date), h, a, g.neutral) / cfg.game_sd)
             exp_wins += p_home if g.home == MICH else 1 - p_home
         for g in self.nonconf:
-            m = self._play(net, g, rng, n, forced)
+            m = self._play(net_for(g.date), g, rng, n, forced)
             mich_results[g.date] = (m > 0) if g.home == MICH else (m < 0)
         T = len(BIG_TEN)
         pos = {t: i for i, t in enumerate(BIG_TEN)}
         conf_w = np.zeros((n, T))
         conf_pd = np.zeros((n, T))
         for g in self.b10_games:
-            m = self._play(net, g, rng, n, forced)
+            m = self._play(net_for(g.date), g, rng, n, forced)
             hi, ai = pos[g.home], pos[g.away]
             conf_w[:, hi] += m > 0
             conf_w[:, ai] += m < 0
