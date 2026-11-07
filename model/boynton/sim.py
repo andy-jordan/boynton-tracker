@@ -36,6 +36,7 @@ class Config:
     # Typical NetRtg of seeds 12-16 (auto-bid teams), used for NCAA opponents.
     low_seed_net: dict = field(default_factory=lambda: {12: 9.0, 13: 5.0, 14: 2.0, 15: -2.0, 16: -8.0})
     wins_target: int = 24
+    top4_counts_ties: bool = True  # a tie for 4th counts (Torvik convention; Andy 2026-11-07)
 
 
 # --------------------------------------------------------------------------
@@ -173,6 +174,10 @@ class Model:
         order = np.argsort(-score, axis=1)                  # order[:, k] = team pos at seed k+1
         mi = pos[MICH]
         mich_finish = np.argmax(order == mi, axis=1) + 1
+        # Top 4 counting ties (Torvik's convention): conference wins at least
+        # the 4th-best total. Kept for the cross-check against Torvik's page.
+        fourth = -np.sort(-conf_w, axis=1)[:, 3:4]
+        top4_ties = conf_w >= fourth                         # (n, T)
         seeds = self.b10_idx[order]                          # global team idx by seed
 
         # Big Ten Tournament (15 teams).
@@ -196,7 +201,8 @@ class Model:
 
         b = {
             "24_wins": reg_wins >= cfg.wins_target,
-            "top4": mich_finish <= 4,
+            # Andy (2026-11-07): a tie for 4th counts, as on Torvik's page.
+            "top4": top4_ties[:, mi] if cfg.top4_counts_ties else mich_finish <= 4,
             "btt_title": won_btt,
             "sweet16": s16,
         }
@@ -205,6 +211,9 @@ class Model:
             "n": n, "benchmarks": b, "hits": hits, "extension": hits >= 2,
             "reg_wins": reg_wins, "finish": mich_finish, "made_ncaa": made_ncaa,
             "ncaa_seed": seed, "mich_results": mich_results,
+            "b10_top4_ties": top4_ties.mean(axis=0),
+            "b10_top4": (np.argsort(order, axis=1) < 4).mean(axis=0),
+            "b10_btt": np.array([(champ == self.idx[t]).mean() for t in BIG_TEN]),
         }
 
     def _ncaa(self, net, luck, won_btt, rng):
@@ -311,4 +320,14 @@ def summarize(model: Model, res: dict) -> dict:
             "p_ext_if_loss": float(ext[~w].mean()) if (~w).sum() >= 200 else None,
         })
     out["leverage"] = lev
+    # League-wide table for cross-checking against Torvik's conference page.
+    out["b10_table"] = {
+        t: {"top4": float(res["b10_top4"][i]), "top4_ties": float(res["b10_top4_ties"][i]),
+            "btt": float(res["b10_btt"][i])}
+        for i, t in enumerate(BIG_TEN)
+    }
+    out["benchmarks_extra"] = {
+        "top4_ties": out["b10_table"][MICH]["top4_ties"],
+        "top4_seed": out["b10_table"][MICH]["top4"],
+    }
     return out

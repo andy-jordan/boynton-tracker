@@ -4,7 +4,7 @@ Monte Carlo estimate of the probability that Mike Boynton (Michigan, interim hea
 coach) hits **at least 2 of 4** benchmarks that trigger an automatic extension:
 
 1. 24+ regular-season wins
-2. Top-4 finish in the Big Ten regular season
+2. Top-4 finish in the Big Ten regular season (a tie for 4th counts)
 3. Big Ten Tournament title
 4. Sweet 16 berth
 
@@ -42,8 +42,10 @@ Teams missing from a partial ratings table get a fallback NetRtg of -7 (about th
 - **Regular season.** Michigan's 30 games are simulated, and so is the whole Big Ten
   slate, because standings depend on everyone. The full 180-game league schedule is in
   `data/big_ten_schedule.csv`; if it's removed, a synthetic 20-game schedule is used instead.
-- **Top 4.** Rank by conference wins; ties broken by league point differential,
-  then at random. Real Big Ten tiebreakers are a TODO.
+- **Top 4.** Counts any finish tied for 4th or better in conference wins, the
+  way Torvik's title-odds page does (Andy's call, 2026-11-07). The JSON also
+  carries `top4_seed` (ties broken by league point differential, then at random)
+  and a `b10_table` with every team's top-4 and BTT odds for cross-checking.
 - **Big Ten Tournament.** 15-team bracket (seeds 16 to 18 miss out), neutral site.
 - **NCAA.** Resume = rating + 1 point per win above what that sim's ratings
   predicted (the "luck"). Michigan's luck is simulated; every other team gets a

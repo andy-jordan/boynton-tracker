@@ -35,15 +35,20 @@ def test_probabilities_sane_and_forcing_moves_them():
     base = summarize(m, m.simulate())
     assert 0 <= base["p_extension"] <= 1
     assert abs(sum(base["b10_finish_dist"].values()) - 1) < 1e-9
-    win = summarize(m, m.simulate({"2026-11-06": "W"}))
-    loss = summarize(m, m.simulate({"2026-11-06": "L"}))
+    nxt = next(g.date for g in m.mich_games if not g.played)
+    win = summarize(m, m.simulate({nxt: "W"}))
+    loss = summarize(m, m.simulate({nxt: "L"}))
     assert win["reg_wins_mean"] > loss["reg_wins_mean"]
     assert win["p_extension"] >= loss["p_extension"]
 
 
 def test_record_counts_played_games():
     m = small()
-    assert summarize(m, m.simulate())["record"] == {"wins": 1, "losses": 0, "conf_wins": 0, "conf_losses": 0}
+    played = [g for g in m.mich_games if g.played]
+    won = [(g.home_score > g.away_score) == (g.home == "Michigan") for g in played]
+    rec = summarize(m, m.simulate())["record"]
+    assert rec["wins"] == sum(won) and rec["losses"] == len(played) - sum(won)
+    assert rec["conf_wins"] + rec["conf_losses"] == sum(g.conference for g in played)
 
 
 def test_cli_both_sources_json(tmp_path):
@@ -64,3 +69,13 @@ def test_michigan_conf_results_flow_into_big_ten_schedule():
     sched = load_big_ten_schedule(games)
     b = next(x for x in sched if x.date == "2026-12-09" and "Michigan" in (x.home, x.away))
     assert b.played and (b.home_score, b.away_score) == (60, 70)
+
+
+def test_top4_counts_ties_and_table_is_consistent():
+    m = small()
+    out = summarize(m, m.simulate())
+    t = out["b10_table"]
+    assert abs(sum(r["top4"] for r in t.values()) - 4) < 1e-9
+    assert abs(sum(r["btt"] for r in t.values()) - 1) < 1e-9
+    assert all(r["top4_ties"] >= r["top4"] for r in t.values())
+    assert out["benchmarks"]["top4"] == t["Michigan"]["top4_ties"]
